@@ -263,6 +263,13 @@ export default function SettingsScreen() {
         <SectionLabel label="ACCOUNT" delay={320} />
         <Animated.View entering={FadeInDown.duration(300)} style={styles.card}>
           <SettingsRow
+            icon="pills-outline"
+            label="Medications"
+            onPress={() => router.push("/(tabs)/medications")}
+            delay={0}
+          />
+          <View style={styles.rowDivider} />
+          <SettingsRow
             icon="lock-closed-outline"
             label="Change password"
             onPress={() => router.push("/(tabs)/change-password")}
