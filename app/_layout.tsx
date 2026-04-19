@@ -2,6 +2,7 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
+import { useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useAuthStore } from "../store/authStore";
@@ -11,6 +12,7 @@ export default function RootLayout() {
   const initializeAuth = useAuthStore((s) => s.initialize);
   const initializeTheme = useThemeStore((s) => s.initialize);
   const { isDark, colors } = useThemeStore();
+  const systemScheme = useColorScheme();
 
   useEffect(() => {
     const unsubscribeAuth = initializeAuth();
@@ -18,8 +20,8 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    initializeTheme();
-  }, []);
+    initializeTheme(systemScheme);
+  }, [systemScheme]);
 
   return (
     <GestureHandlerRootView

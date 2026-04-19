@@ -10,7 +10,7 @@ interface ThemeState {
   isDark: boolean;
   colors: typeof LightColors;
   setThemeMode: (mode: ThemeMode) => Promise<void>;
-  initialize: () => Promise<void>;
+  initialize: (systemScheme: "light" | "dark" | null) => Promise<void>;
 }
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
@@ -22,20 +22,21 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     try {
       await AsyncStorage.setItem("theme_mode", mode);
       set({ mode });
-      get().initialize();
+      // Re-initialize with current system scheme
+      const systemScheme = useNativeColorScheme();
+      get().initialize(systemScheme);
     } catch (e) {
       console.error("Failed to save theme mode:", e);
     }
   },
 
-  initialize: async () => {
+  initialize: async (systemScheme) => {
     try {
       const savedMode = await AsyncStorage.getItem("theme_mode");
       const mode = (savedMode as ThemeMode) || "system";
-      const nativeScheme = useNativeColorScheme();
 
       const isDarkMode =
-        mode === "dark" || (mode === "system" && nativeScheme === "dark");
+        mode === "dark" || (mode === "system" && systemScheme === "dark");
 
       set({
         mode,
@@ -47,3 +48,8 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     }
   },
 }));
+
+// Hook to use theme in components (call this inside components, not in stores)
+export function useTheme() {
+  return useThemeStore();
+}
