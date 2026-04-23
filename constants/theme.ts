@@ -28,7 +28,7 @@ export const LightColors = {
   border: "#E8E3DC",
   borderLight: "#F0ECE6",
 
-  // Tab bar
+  // Tab barr
   tabActive: "#1A1612",
   tabInactive: "#B5AFA8",
 
