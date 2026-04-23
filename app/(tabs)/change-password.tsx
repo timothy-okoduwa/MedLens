@@ -102,6 +102,7 @@ export default function ChangePasswordScreen() {
       paddingHorizontal: Spacing.xl,
       paddingTop: Spacing.lg,
       paddingBottom: 48,
+      marginTop: 80,
     },
     header: {
       marginBottom: Spacing.xl,

@@ -12,9 +12,11 @@ import {
 } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Colors, Shadow, Spacing } from "../../constants/theme";
+import { Shadow, Spacing } from "../../constants/theme";
 import { useAuthStore } from "../../store/authStore";
+import { useNotificationStore } from "../../store/notificationStore";
 import { useReportStore } from "../../store/reportStore";
+import { useThemeStore } from "../../store/themeStore";
 import { Report } from "../../types";
 
 function greeting() {
@@ -24,15 +26,15 @@ function greeting() {
   return "Good evening";
 }
 
-function StatusTag({ status }: { status: string }) {
+function StatusTag({ status, colors }: { status: string; colors: any }) {
   const map: Record<string, { bg: string; text: string }> = {
-    Stable: { bg: Colors.healthyBg, text: Colors.healthy },
-    "Needs Attention": { bg: Colors.warningBg, text: Colors.warning },
-    Critical: { bg: Colors.dangerBg, text: Colors.danger },
+    Stable: { bg: colors.healthyBg, text: colors.healthy },
+    "Needs Attention": { bg: colors.warningBg, text: colors.warning },
+    Critical: { bg: colors.dangerBg, text: colors.danger },
   };
   const c = map[status] ?? {
-    bg: Colors.surfaceAlt,
-    text: Colors.textSecondary,
+    bg: colors.surfaceAlt,
+    text: colors.textSecondary,
   };
   return (
     <View style={[styles.statusTag, { backgroundColor: c.bg }]}>
@@ -41,7 +43,15 @@ function StatusTag({ status }: { status: string }) {
   );
 }
 
-function ReportCard({ report, delay }: { report: Report; delay: number }) {
+function ReportCard({
+  report,
+  delay,
+  colors,
+}: {
+  report: Report;
+  delay: number;
+  colors: any;
+}) {
   const date = new Date(report.createdAt);
   const dateStr = date.toLocaleDateString("en-GB", {
     day: "numeric",
@@ -52,31 +62,43 @@ function ReportCard({ report, delay }: { report: Report; delay: number }) {
   return (
     <Animated.View entering={FadeInDown.delay(delay).springify().damping(14)}>
       <TouchableOpacity
-        style={styles.reportCard}
+        style={[styles.reportCard, { backgroundColor: colors.surface }]}
         onPress={() =>
           router.push({
             pathname: "/(tabs)/report/[id]",
-            params: { id: report.reportId },
+            params: { reportId: report.reportId } as any,
           })
         }
         activeOpacity={0.85}
       >
-        <View style={styles.reportCardIcon}>
-          <Ionicons name="document-text" size={22} color={Colors.accent} />
+        <View
+          style={[
+            styles.reportCardIcon,
+            { backgroundColor: colors.accentLight },
+          ]}
+        >
+          <Ionicons name="document-text" size={20} color={colors.accent} />
         </View>
         <View style={styles.reportCardBody}>
-          <Text style={styles.reportCardName} numberOfLines={1}>
+          <Text
+            style={[styles.reportCardName, { color: colors.text }]}
+            numberOfLines={1}
+          >
             {report.fileName}
           </Text>
-          <Text style={styles.reportCardDate}>{dateStr}</Text>
+          <Text
+            style={[styles.reportCardDate, { color: colors.textSecondary }]}
+          >
+            {dateStr}
+          </Text>
         </View>
         {report.aiSummary?.overallStatus && (
-          <StatusTag status={report.aiSummary.overallStatus} />
+          <StatusTag status={report.aiSummary.overallStatus} colors={colors} />
         )}
         <Ionicons
           name="chevron-forward"
           size={16}
-          color={Colors.textTertiary}
+          color={colors.textTertiary}
         />
       </TouchableOpacity>
     </Animated.View>
@@ -86,11 +108,14 @@ function ReportCard({ report, delay }: { report: Report; delay: number }) {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
-  const { reports, fetchReports, loading } = useReportStore();
+  const { reports, fetchReports } = useReportStore();
+  const { unreadCount, initialize: initNotifications } = useNotificationStore();
+  const { colors } = useThemeStore();
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (user) fetchReports(user.id).catch(() => {});
+    initNotifications();
   }, [user]);
 
   const onRefresh = useCallback(async () => {
@@ -102,8 +127,19 @@ export default function HomeScreen() {
   const lastReport = reports[0];
   const firstName = user?.name?.split(" ")[0] ?? "there";
 
+  const attentionCount = reports.filter(
+    (r) =>
+      r.aiSummary?.overallStatus === "Needs Attention" ||
+      r.aiSummary?.overallStatus === "Critical",
+  ).length;
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View
+      style={[
+        styles.container,
+        { backgroundColor: colors.background, paddingTop: insets.top },
+      ]}
+    >
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
@@ -111,7 +147,7 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.accent}
+            tintColor={colors.accent}
           />
         }
       >
@@ -121,17 +157,97 @@ export default function HomeScreen() {
           style={styles.header}
         >
           <View>
-            <Text style={styles.greetingText}>{greeting()},</Text>
-            <Text style={styles.nameText}>{firstName} 👋</Text>
+            <Text
+              style={[styles.greetingText, { color: colors.textSecondary }]}
+            >
+              {greeting()},
+            </Text>
+            <Text style={[styles.nameText, { color: colors.text }]}>
+              {firstName} 👋
+            </Text>
           </View>
-          <TouchableOpacity onPress={() => router.push("/(tabs)/settings")}>
-            <View style={styles.avatarCircle}>
-              <Text style={styles.avatarLetter}>
-                {(user?.name ?? "U")[0].toUpperCase()}
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              onPress={() => router.push("/(tabs)/notifications" as any)}
+              style={[styles.bellBtn, { backgroundColor: colors.surface }]}
+            >
+              <Ionicons
+                name="notifications-outline"
+                size={22}
+                color={colors.text}
+              />
+              {unreadCount > 0 && (
+                <View
+                  style={[styles.badge, { backgroundColor: colors.danger }]}
+                >
+                  <Text style={styles.badgeText}>
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push("/(tabs)/settings")}>
+              <View
+                style={[
+                  styles.avatarCircle,
+                  { backgroundColor: colors.accent },
+                ]}
+              >
+                <Text style={styles.avatarLetter}>
+                  {(user?.name ?? "U")[0].toUpperCase()}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+
+        {/* Health summary strip */}
+        {reports.length > 0 && (
+          <Animated.View
+            entering={FadeInDown.delay(60).springify().damping(14)}
+            style={styles.statsRow}
+          >
+            <View
+              style={[styles.statChip, { backgroundColor: colors.surface }]}
+            >
+              <Text style={[styles.statNum, { color: colors.text }]}>
+                {reports.length}
+              </Text>
+              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
+                Reports
               </Text>
             </View>
-          </TouchableOpacity>
-        </Animated.View>
+            <View
+              style={[styles.statChip, { backgroundColor: colors.surface }]}
+            >
+              <Text
+                style={[
+                  styles.statNum,
+                  {
+                    color: attentionCount > 0 ? colors.warning : colors.healthy,
+                  },
+                ]}
+              >
+                {attentionCount}
+              </Text>
+              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
+                Need Review
+              </Text>
+            </View>
+            <View
+              style={[styles.statChip, { backgroundColor: colors.surface }]}
+            >
+              <Ionicons
+                name="shield-checkmark"
+                size={20}
+                color={colors.healthy}
+              />
+              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
+                Tracked
+              </Text>
+            </View>
+          </Animated.View>
+        )}
 
         {/* Last report summary card */}
         {lastReport ? (
@@ -139,11 +255,11 @@ export default function HomeScreen() {
             entering={FadeInDown.delay(80).springify().damping(14)}
           >
             <TouchableOpacity
-              style={styles.summaryCard}
+              style={[styles.summaryCard, { backgroundColor: colors.dark }]}
               onPress={() =>
                 router.push({
-                  pathname: "/(tabs)/insights",
-                  params: { reportId: lastReport.reportId },
+                  pathname: "/(tabs)/report/[id]",
+                  params: { reportId: lastReport.reportId } as any,
                 })
               }
               activeOpacity={0.88}
@@ -151,7 +267,10 @@ export default function HomeScreen() {
               <View style={styles.summaryCardTop}>
                 <Text style={styles.summaryCardLabel}>LAST REPORT STATUS</Text>
                 {lastReport.aiSummary?.overallStatus && (
-                  <StatusTag status={lastReport.aiSummary.overallStatus} />
+                  <StatusTag
+                    status={lastReport.aiSummary.overallStatus}
+                    colors={colors}
+                  />
                 )}
               </View>
               <Text style={styles.summaryCardTitle} numberOfLines={1}>
@@ -169,7 +288,9 @@ export default function HomeScreen() {
                 </Text>
               ) : null}
               <View style={styles.summaryCardCta}>
-                <Text style={styles.summaryCardCtaText}>
+                <Text
+                  style={[styles.summaryCardCtaText, { color: colors.accent }]}
+                >
                   View full analysis →
                 </Text>
               </View>
@@ -179,16 +300,43 @@ export default function HomeScreen() {
           <Animated.View
             entering={FadeInDown.delay(80).springify().damping(14)}
           >
-            <View style={styles.emptyCard}>
-              <Ionicons
-                name="document-text-outline"
-                size={40}
-                color={Colors.textTertiary}
-              />
-              <Text style={styles.emptyCardTitle}>No reports yet</Text>
-              <Text style={styles.emptyCardSub}>
-                Upload your first medical report to get started
+            <View
+              style={[
+                styles.emptyCard,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.emptyIconCircle,
+                  { backgroundColor: colors.accentLight },
+                ]}
+              >
+                <Ionicons
+                  name="document-text-outline"
+                  size={32}
+                  color={colors.accent}
+                />
+              </View>
+              <Text style={[styles.emptyCardTitle, { color: colors.text }]}>
+                No reports yet
               </Text>
+              <Text
+                style={[styles.emptyCardSub, { color: colors.textSecondary }]}
+              >
+                Upload your first medical report to get AI-powered insights
+              </Text>
+              <TouchableOpacity
+                style={[styles.uploadBtn, { backgroundColor: colors.accent }]}
+                onPress={() => router.push("/(tabs)/insights")}
+                activeOpacity={0.87}
+              >
+                <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+                <Text style={styles.uploadBtnText}>Upload Report</Text>
+              </TouchableOpacity>
             </View>
           </Animated.View>
         )}
@@ -198,7 +346,9 @@ export default function HomeScreen() {
           entering={FadeInDown.delay(160).springify()}
           style={styles.sectionHeader}
         >
-          <Text style={styles.sectionTitle}>QUICK ACTIONS</Text>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+            QUICK ACTIONS
+          </Text>
         </Animated.View>
 
         <Animated.View
@@ -206,39 +356,56 @@ export default function HomeScreen() {
           style={styles.actionsRow}
         >
           <TouchableOpacity
-            style={styles.actionCardPrimary}
+            style={[styles.actionCardPrimary, { backgroundColor: colors.text }]}
             onPress={() => router.push("/(tabs)/insights")}
             activeOpacity={0.87}
           >
-            <View style={styles.actionIconWrap}>
-              <Ionicons name="cloud-upload-outline" size={26} color="#fff" />
+            <View
+              style={[
+                styles.actionIconWrap,
+                { backgroundColor: colors.accent },
+              ]}
+            >
+              <Ionicons name="cloud-upload-outline" size={24} color="#fff" />
             </View>
-            <Text style={styles.actionCardPrimaryText}>Upload New Report</Text>
+            <Text style={styles.actionCardPrimaryText}>Upload Report</Text>
             <Text style={styles.actionCardPrimarySub}>PDF or image</Text>
           </TouchableOpacity>
 
-          {lastReport && (
-            <TouchableOpacity
-              style={styles.actionCardSecondary}
-              onPress={() =>
-                router.push({
-                  pathname: "/(tabs)/insights",
-                  params: { reportId: lastReport.reportId, chat: "1" },
-                })
-              }
-              activeOpacity={0.87}
+          <TouchableOpacity
+            style={[
+              styles.actionCardSecondary,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+            onPress={() => router.push("/(tabs)/medications" as any)}
+            activeOpacity={0.87}
+          >
+            <View
+              style={[
+                styles.actionIconWrap,
+                { backgroundColor: colors.accentLight },
+              ]}
             >
-              <View style={[styles.actionIconWrap, styles.actionIconSecondary]}>
-                <Ionicons
-                  name="chatbubble-outline"
-                  size={24}
-                  color={Colors.accent}
-                />
-              </View>
-              <Text style={styles.actionCardSecondaryText}>Continue Chat</Text>
-              <Text style={styles.actionCardSecondarySub}>Last report</Text>
-            </TouchableOpacity>
-          )}
+              <Ionicons
+                name="medical-outline"
+                size={22}
+                color={colors.accent}
+              />
+            </View>
+            <Text
+              style={[styles.actionCardSecondaryText, { color: colors.text }]}
+            >
+              My Meds
+            </Text>
+            <Text
+              style={[
+                styles.actionCardSecondarySub,
+                { color: colors.textTertiary },
+              ]}
+            >
+              Track medications
+            </Text>
+          </TouchableOpacity>
         </Animated.View>
 
         {/* Recent Reports */}
@@ -248,16 +415,27 @@ export default function HomeScreen() {
               entering={FadeInDown.delay(280).springify()}
               style={styles.sectionHeader}
             >
-              <Text style={styles.sectionTitle}>RECENT REPORTS</Text>
+              <Text
+                style={[styles.sectionTitle, { color: colors.textSecondary }]}
+              >
+                RECENT REPORTS
+              </Text>
               <TouchableOpacity
                 onPress={() => router.push("/(tabs)/analytics")}
               >
-                <Text style={styles.sectionLink}>See all →</Text>
+                <Text style={[styles.sectionLink, { color: colors.accent }]}>
+                  See all →
+                </Text>
               </TouchableOpacity>
             </Animated.View>
 
-            {reports.slice(0, 4).map((r, i) => (
-              <ReportCard key={r.reportId} report={r} delay={320 + i * 60} />
+            {reports.slice(0, 3).map((r, i) => (
+              <ReportCard
+                key={r.reportId}
+                report={r}
+                delay={320 + i * 60}
+                colors={colors}
+              />
             ))}
           </>
         )}
@@ -265,11 +443,11 @@ export default function HomeScreen() {
         {/* Disclaimer */}
         <Animated.View
           entering={FadeInDown.delay(500).springify()}
-          style={styles.disclaimerBox}
+          style={[styles.disclaimerBox, { backgroundColor: colors.warningBg }]}
         >
-          <Text style={styles.disclaimerText}>
-            ⚠️ MedLens does not provide medical advice. Always consult a
-            qualified healthcare professional.
+          <Text style={[styles.disclaimerText, { color: colors.warning }]}>
+            ⚠️ MedLens provides AI analysis for informational purposes only.
+            Always consult a qualified healthcare professional.
           </Text>
         </Animated.View>
 
@@ -280,37 +458,77 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { paddingHorizontal: Spacing.xl },
+  container: { flex: 1 },
+  scroll: { paddingHorizontal: Spacing.lg },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
     paddingTop: Spacing.lg,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.md,
   },
-  greetingText: { fontSize: 15, color: Colors.textSecondary },
+  greetingText: { fontSize: 14, fontWeight: "400" },
   nameText: {
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: "300",
-    color: Colors.text,
     letterSpacing: -1,
     marginTop: 2,
   },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 4,
+  },
+  bellBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    ...Shadow.sm,
+  },
+  badge: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 3,
+  },
+  badgeText: { fontSize: 9, fontWeight: "800", color: "#fff" },
   avatarCircle: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.accent,
     justifyContent: "center",
     alignItems: "center",
   },
   avatarLetter: { fontSize: 18, fontWeight: "700", color: "#fff" },
+
+  statsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: Spacing.lg,
+  },
+  statChip: {
+    flex: 1,
+    borderRadius: 16,
+    padding: 14,
+    alignItems: "center",
+    gap: 4,
+    ...Shadow.sm,
+  },
+  statNum: { fontSize: 22, fontWeight: "700", letterSpacing: -0.5 },
+  statLabel: { fontSize: 11, fontWeight: "500" },
+
   summaryCard: {
-    backgroundColor: Colors.dark,
     borderRadius: 24,
     padding: Spacing.lg,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
     gap: 8,
     ...Shadow.md,
   },
@@ -326,7 +544,7 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.4)",
   },
   summaryCardTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "600",
     color: "#fff",
     letterSpacing: -0.5,
@@ -336,29 +554,46 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "rgba(255,255,255,0.7)",
     lineHeight: 20,
-    marginTop: 4,
+    marginTop: 2,
   },
-  summaryCardCta: { marginTop: 8 },
-  summaryCardCtaText: { fontSize: 13, color: Colors.accent, fontWeight: "600" },
+  summaryCardCta: { marginTop: 4 },
+  summaryCardCtaText: { fontSize: 13, fontWeight: "600" },
+
   emptyCard: {
-    backgroundColor: Colors.surface,
     borderRadius: 24,
-    padding: 40,
+    padding: 32,
     alignItems: "center",
     gap: 12,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
     ...Shadow.sm,
-    borderWidth: 2,
-    borderColor: Colors.border,
+    borderWidth: 1.5,
     borderStyle: "dashed",
   },
-  emptyCardTitle: { fontSize: 17, fontWeight: "600", color: Colors.text },
+  emptyIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  emptyCardTitle: { fontSize: 17, fontWeight: "600" },
   emptyCardSub: {
     fontSize: 14,
-    color: Colors.textSecondary,
     textAlign: "center",
     lineHeight: 20,
   },
+  uploadBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 999,
+    marginTop: 4,
+  },
+  uploadBtnText: { fontSize: 14, fontWeight: "700", color: "#fff" },
+
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -369,15 +604,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 1.2,
-    color: Colors.textSecondary,
   },
-  sectionLink: { fontSize: 13, color: Colors.accent, fontWeight: "600" },
-  actionsRow: { flexDirection: "row", gap: 12, marginBottom: Spacing.xl },
+  sectionLink: { fontSize: 13, fontWeight: "600" },
+  actionsRow: { flexDirection: "row", gap: 12, marginBottom: Spacing.lg },
   actionCardPrimary: {
     flex: 1,
-    backgroundColor: Colors.text,
     borderRadius: 20,
-    padding: Spacing.lg,
+    padding: Spacing.md,
     gap: 8,
     ...Shadow.md,
   },
@@ -385,37 +618,32 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: Colors.accent,
     justifyContent: "center",
     alignItems: "center",
   },
-  actionIconSecondary: { backgroundColor: Colors.accentLight },
   actionCardPrimaryText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
-    color: "#fff",
+    color: "#575757",
     marginTop: 4,
   },
-  actionCardPrimarySub: { fontSize: 12, color: "rgba(255,255,255,0.5)" },
+  actionCardPrimarySub: { fontSize: 12, color: "rgba(55, 55, 55, 0.5)" },
   actionCardSecondary: {
     flex: 1,
-    backgroundColor: Colors.surface,
     borderRadius: 20,
-    padding: Spacing.lg,
+    padding: Spacing.md,
     gap: 8,
     ...Shadow.sm,
     borderWidth: 1,
-    borderColor: Colors.border,
   },
   actionCardSecondaryText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
-    color: Colors.text,
     marginTop: 4,
   },
-  actionCardSecondarySub: { fontSize: 12, color: Colors.textTertiary },
+  actionCardSecondarySub: { fontSize: 12 },
+
   reportCard: {
-    backgroundColor: Colors.surface,
     borderRadius: 16,
     padding: Spacing.md,
     flexDirection: "row",
@@ -428,20 +656,18 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: Colors.accentLight,
     justifyContent: "center",
     alignItems: "center",
   },
   reportCardBody: { flex: 1 },
-  reportCardName: { fontSize: 15, fontWeight: "600", color: Colors.text },
-  reportCardDate: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
+  reportCardName: { fontSize: 14, fontWeight: "600" },
+  reportCardDate: { fontSize: 12, marginTop: 2 },
   statusTag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   statusTagText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.6 },
   disclaimerBox: {
-    backgroundColor: Colors.warningBg,
     borderRadius: 14,
     padding: Spacing.md,
     marginTop: Spacing.sm,
   },
-  disclaimerText: { fontSize: 12, color: Colors.warning, lineHeight: 18 },
+  disclaimerText: { fontSize: 12, lineHeight: 18 },
 });

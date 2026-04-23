@@ -53,10 +53,10 @@ export async function extractTextWithOCR(
   formData.append("isOverlayRequired", "false");
   formData.append("detectOrientation", "true");
   formData.append("scale", "true");
-  formData.append("OCREngine", "2"); // Engine 2 is more accurate for complex documents
+  formData.append("OCREngine", "2");
 
   if (!isImage) {
-    formData.append("isTable", "true"); // Better for PDF lab reports with tables
+    formData.append("isTable", "true");
   }
 
   console.log("Starting OCR extraction...");
@@ -80,29 +80,17 @@ export async function extractTextWithOCR(
     throw new Error("OCR returned no results. Please try a clearer image.");
   }
 
-  const extractedText = parsedResults
-    .map((r: any) => r.ParsedText ?? "")
-    .join("\n")
-    .trim();
-
-  if (!extractedText) {
-    throw new Error(
-      "Could not extract any text from the document. Please try a clearer image.",
-    );
-  }
-
-  console.log("OCR extracted text length:", extractedText.length);
-  return extractedText;
+  return parsedResults.map((r: any) => r.ParsedText ?? "").join("\n");
 }
 
-// ─── Report interpretation prompt ────────────────────────────────────────────
+// ─── System prompt ────────────────────────────────────────────────────────────
 const REPORT_SYSTEM_PROMPT = `You are a medical report interpreter for MedLens.
 
 Your job is to explain medical lab results and reports in simple, plain language.
 
 STRICT RULES:
 - Do NOT diagnose any condition
-- Do NOT prescribe or recommend medication
+- Do NOT prescribe or recommend medication beyond what is already specified in the report
 - Do NOT act as a doctor
 - Use simple, empathetic language a non-medical person can understand
 - Always include a reminder to consult a healthcare professional
@@ -118,14 +106,32 @@ You MUST respond with ONLY valid JSON — no markdown, no backticks, no explanat
   "suggestedNextSteps": [
     "Actionable, safe, non-medical suggestion 1",
     "Actionable, safe, non-medical suggestion 2"
-  ]
+  ],
+  "medications": []
 }
 
 Rules for field values:
 - overallStatus must be exactly one of: "Stable", "Needs Attention", or "Critical"
 - keyFindings[].status must be exactly one of: "Normal", "High", "Low", or "Unknown"
 - keyFindings must always be an array (use [] if no specific lab markers found)
-- suggestedNextSteps must always be an array with at least one item`;
+- suggestedNextSteps must always be an array with at least one item
+- medications: if the report mentions any drugs/medications that the doctor has prescribed with dosage and frequency, extract them as:
+  [{
+    "name": "Drug name",
+    "dosage": "500mg",
+    "timesPerDay": 2,
+    "durationDays": 7,
+    "notes": "optional instructions"
+  }]
+  
+  For durationDays:
+  - Look for phrases like "for 5 days", "take for 2 weeks", "7-day course", "use for 3 days", etc.
+  - If a range is given (e.g. "2-4 days" or "5-7 days"), always use the HIGHER number (e.g. 4 or 7)
+  - If no duration is mentioned anywhere in the report, use 7 as the default
+  - durationDays must always be an integer greater than 0
+  - timesPerDay must be an integer (e.g. 1, 2, 3)
+  
+  If no medications are mentioned, use an empty array [].`;
 
 // ─── Analyze report via OCR + DeepSeek ───────────────────────────────────────
 export async function analyzeReport(
@@ -137,13 +143,11 @@ export async function analyzeReport(
 ): Promise<AISummary> {
   let textToAnalyze = rawText;
 
-  // If no raw text provided, use OCR to extract it from the local file
   if (!textToAnalyze && localUri) {
     try {
       textToAnalyze = await extractTextWithOCR(localUri, isImage ?? true);
     } catch (ocrError: any) {
       console.error("OCR error:", ocrError);
-      // Fall back to sending file URL as context
       textToAnalyze = `[OCR failed: ${ocrError.message}]\nFile URL: ${fileUrl}`;
     }
   }
@@ -193,6 +197,7 @@ export async function analyzeReport(
         "Try uploading a clearer image of the report.",
         "Consult your healthcare provider for a full explanation.",
       ],
+      medications: [],
     };
   }
 
@@ -209,6 +214,18 @@ export async function analyzeReport(
       summary: parsed.summary ?? "",
       overallStatus: parsed.overallStatus ?? "Needs Attention",
       whatItCouldMean: parsed.whatItCouldMean ?? "",
+      medications: Array.isArray(parsed.medications)
+        ? parsed.medications.map((m) => ({
+            ...m,
+            timesPerDay: typeof m.timesPerDay === "number" ? m.timesPerDay : 1,
+            // Enforce: if range was given, AI should have picked the higher value.
+            // Belt-and-suspenders: ensure it's always a positive integer.
+            durationDays:
+              typeof m.durationDays === "number" && m.durationDays > 0
+                ? Math.round(m.durationDays)
+                : 7,
+          }))
+        : [],
     };
   } catch {
     return {
@@ -219,6 +236,7 @@ export async function analyzeReport(
       suggestedNextSteps: [
         "Consult your healthcare provider for a full explanation.",
       ],
+      medications: [],
     };
   }
 }
@@ -235,11 +253,18 @@ Report Summary: ${reportSummary.summary}
 Overall Status: ${reportSummary.overallStatus}
 Key Findings: ${JSON.stringify(reportSummary.keyFindings)}
 What It Could Mean: ${reportSummary.whatItCouldMean}
+Prescribed Medications (extracted directly from the report): ${
+    reportSummary.medications && reportSummary.medications.length > 0
+      ? JSON.stringify(reportSummary.medications)
+      : "None listed in this report"
+  }
 ${userProfile ? `Patient context: ${userProfile}` : ""}
 
 STRICT RULES:
 - ONLY answer questions related to this specific report and its findings
-- Do NOT diagnose or prescribe
+- You HAVE access to the medications listed above — they were extracted from the report itself. When asked about medications or prescriptions, list them clearly from the data above. Do NOT say you cannot see medications if they are listed above.
+- Do NOT invent or add medications beyond what is listed in the report data above
+- Do NOT diagnose or prescribe new treatments
 - If asked an unrelated question, respond: "I can only help with questions related to your uploaded medical report."
 - Be empathetic, clear, and use simple language
 - Always remind the user to consult a healthcare professional for medical decisions
@@ -296,14 +321,10 @@ export async function chatGeneral(
       messages: [
         {
           role: "system",
-          content: `You are MedLens AI. You help users understand health topics in plain language.
-RULES: Never diagnose. Never prescribe. Always recommend consulting a doctor.
-If asked to interpret a specific report, ask the user to upload it first.`,
+          content:
+            "You are a helpful, empathetic health assistant. You do not diagnose conditions or prescribe medications. Always recommend consulting a healthcare professional.",
         },
-        ...messages.map((m) => ({
-          role: m.role === "assistant" ? "assistant" : "user",
-          content: m.content,
-        })),
+        ...messages,
       ],
     }),
   });
@@ -311,11 +332,11 @@ If asked to interpret a specific report, ask the user to upload it first.`,
   const data = await res.json();
 
   if (data.error) {
-    console.error("DeepSeek general chat error:", data.error);
     throw new Error(data.error.message ?? "Chat API error");
   }
 
   return (
-    data.choices?.[0]?.message?.content ?? "I couldn't process your request."
+    data.choices?.[0]?.message?.content ??
+    "I couldn't process your request. Please try again."
   );
 }

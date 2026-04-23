@@ -21,6 +21,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import { GoogleIcon } from "../../components/GoogleIcon";
 import { Colors, Radius, Shadow, Spacing } from "../../constants/theme";
 import { useAuthStore } from "../../store/authStore";
 
@@ -84,7 +85,6 @@ function FloatingCard({
 export default function WelcomeScreen() {
   const { signInWithGoogle, loading } = useAuthStore();
 
-  // Replace with your actual Google client IDs from Firebase Console > Authentication > Sign-in method > Google
   const [request, response, promptAsync] = Google.useAuthRequest({
     androidClientId:
       "402430163576-bekanssocsol7bfcae6ai8g5nmnumepp.apps.googleusercontent.com",
@@ -99,7 +99,7 @@ export default function WelcomeScreen() {
       const { id_token } = response.params;
       if (id_token) {
         signInWithGoogle(id_token)
-          .then(() => router.replace("/(auth)/onboarding/step1"))
+          .then(() => router.replace("/(auth)/onboarding/step1" as any))
           .catch((e: any) => Alert.alert("Google Sign-In failed", e.message));
       }
     }
@@ -221,9 +221,7 @@ export default function WelcomeScreen() {
             disabled={!request || loading}
             activeOpacity={0.85}
           >
-            <View style={styles.googleIcon}>
-              <Text style={styles.googleIconLetter}>G</Text>
-            </View>
+            <GoogleIcon size={20} />
             <Text style={styles.googleBtnText}>Continue with Google</Text>
           </TouchableOpacity>
 
@@ -235,7 +233,7 @@ export default function WelcomeScreen() {
 
           <TouchableOpacity
             style={styles.primaryBtn}
-            onPress={() => router.push("/(auth)/signup")}
+            onPress={() => router.push("/(auth)/signup" as any)}
             activeOpacity={0.85}
           >
             <Text style={styles.primaryBtnText}>Create an account</Text>
@@ -243,7 +241,7 @@ export default function WelcomeScreen() {
 
           <TouchableOpacity
             style={styles.ghostBtn}
-            onPress={() => router.push("/(auth)/signin")}
+            onPress={() => router.push("/(auth)/signin" as any)}
             activeOpacity={0.85}
           >
             <Text style={styles.ghostBtnText}>
@@ -382,15 +380,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     ...Shadow.sm,
   },
-  googleIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#4285F4",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  googleIconLetter: { fontSize: 13, fontWeight: "900", color: "#fff" },
   googleBtnText: {
     fontSize: 15,
     fontWeight: "600",

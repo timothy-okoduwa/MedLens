@@ -1,8 +1,10 @@
 // app/(auth)/signin.tsx
+import * as AppleAuthentication from "expo-apple-authentication";
 import * as Google from "expo-auth-session/providers/google";
+import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -15,6 +17,7 @@ import {
   View,
 } from "react-native";
 import Animated, {
+  FadeIn,
   FadeInDown,
   useAnimatedStyle,
   useSharedValue,
@@ -22,16 +25,39 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import { GoogleIcon } from "../../components/GoogleIcon";
 import { Colors, Radius, Shadow, Spacing } from "../../constants/theme";
 import { useAuthStore } from "../../store/authStore";
+import { useBiometricStore } from "../../store/biometricStore";
 
 WebBrowser.maybeCompleteAuthSession();
+
+function getBiometricLabel(
+  types: LocalAuthentication.AuthenticationType[] | null,
+): string {
+  if (!types || types.length === 0) return "Biometrics";
+  if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION))
+    return "Face ID";
+  if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT))
+    return "Fingerprint";
+  return "Biometrics";
+}
 
 export default function SignInScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [focusedField, setFocusedField] = useState<string | null>(null);
-  const { signIn, signInWithGoogle, loading } = useAuthStore();
+  const { signIn, signInWithGoogle, signInWithApple, loading } = useAuthStore();
+  const {
+    isAvailable,
+    isEnabled,
+    biometricType,
+    initialize: initBiometric,
+    authenticate,
+    setPendingCredentials,
+  } = useBiometricStore();
+
+  const hasTriedBiometric = useRef(false);
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     androidClientId:
@@ -53,14 +79,50 @@ export default function SignInScreen() {
     }
   }, [response]);
 
-  const headerY = useSharedValue(-20);
-  const headerOpacity = useSharedValue(0);
-
   useEffect(() => {
-    headerY.value = withTiming(0, { duration: 300 });
-    headerOpacity.value = withTiming(1, { duration: 300 });
+    initBiometric().then(() => {
+      const { isAvailable, isEnabled } = useBiometricStore.getState();
+      if (isAvailable && isEnabled && !hasTriedBiometric.current) {
+        hasTriedBiometric.current = true;
+        triggerBiometric();
+      }
+    });
   }, []);
 
+  const triggerBiometric = async () => {
+    const credentials = await authenticate();
+    if (!credentials) return;
+    try {
+      await signIn(credentials.email, credentials.password);
+      router.replace("/(tabs)");
+    } catch {
+      Alert.alert(
+        "Biometric sign-in failed",
+        "Your saved credentials may have changed. Please sign in with your password.",
+      );
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    try {
+      await signInWithApple();
+      router.replace("/(tabs)");
+    } catch (e: any) {
+      if (e?.code !== "ERR_REQUEST_CANCELED") {
+        Alert.alert(
+          "Apple Sign-In failed",
+          e.message ?? "Something went wrong.",
+        );
+      }
+    }
+  };
+
+  const headerY = useSharedValue(-20);
+  const headerOpacity = useSharedValue(0);
+  useEffect(() => {
+    headerY.value = withDelay(50, withSpring(0, { damping: 16 }));
+    headerOpacity.value = withDelay(50, withTiming(1, { duration: 400 }));
+  }, []);
   const headerStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: headerY.value }],
     opacity: headerOpacity.value,
@@ -73,15 +135,15 @@ export default function SignInScreen() {
     }
     try {
       await signIn(email.trim(), password);
-      // Verify authentication before routing
-      const { user, firebaseUser } = useAuthStore.getState();
-      if (firebaseUser && user) {
-        router.replace("/(tabs)");
+      setPendingCredentials(email.trim(), password);
+
+      // ✅ Route to onboarding if not completed, otherwise go to tabs
+      const { user } = useAuthStore.getState();
+      if ((user as any)?.onboardingComplete === false) {
+        useAuthStore.setState({ needsOnboarding: true });
+        router.replace("/(auth)/onboarding/step1" as any);
       } else {
-        Alert.alert(
-          "Sign in failed",
-          "Authentication successful but user data not loaded. Please try again.",
-        );
+        router.replace("/(tabs)");
       }
     } catch (e: any) {
       Alert.alert(
@@ -90,6 +152,8 @@ export default function SignInScreen() {
       );
     }
   };
+
+  const biometricLabel = getBiometricLabel(biometricType);
 
   return (
     <KeyboardAvoidingView
@@ -110,8 +174,30 @@ export default function SignInScreen() {
           <Text style={styles.subtitle}>Sign in to your account</Text>
         </Animated.View>
 
+        {isAvailable && isEnabled && (
+          <Animated.View entering={FadeIn.delay(200).duration(400)}>
+            <TouchableOpacity
+              style={styles.biometricBtn}
+              onPress={triggerBiometric}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.biometricIcon}>
+                {biometricLabel === "Face ID" ? "🔒" : "👆"}
+              </Text>
+              <Text style={styles.biometricBtnText}>
+                Sign in with {biometricLabel}
+              </Text>
+            </TouchableOpacity>
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or use password</Text>
+              <View style={styles.dividerLine} />
+            </View>
+          </Animated.View>
+        )}
+
         <Animated.View
-          entering={FadeInDown.duration(300)}
+          entering={FadeInDown.delay(150).springify().damping(16)}
           style={styles.form}
         >
           <View style={styles.inputGroup}>
@@ -162,7 +248,7 @@ export default function SignInScreen() {
           </TouchableOpacity>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.duration(300)}>
+        <Animated.View entering={FadeInDown.delay(250).springify()}>
           <View style={styles.dividerRow}>
             <View style={styles.dividerLine} />
             <Text style={styles.dividerText}>or</Text>
@@ -170,21 +256,33 @@ export default function SignInScreen() {
           </View>
 
           <TouchableOpacity
-            style={styles.googleBtn}
+            style={styles.socialBtn}
             onPress={() => promptAsync()}
             disabled={!request || loading}
             activeOpacity={0.85}
           >
-            <View style={styles.googleIcon}>
-              <Text style={styles.googleIconLetter}>G</Text>
-            </View>
-            <Text style={styles.googleBtnText}>Continue with Google</Text>
+            <GoogleIcon size={20} />
+            <Text style={styles.socialBtnText}>Continue with Google</Text>
           </TouchableOpacity>
+
+          {Platform.OS === "ios" && (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={
+                AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN
+              }
+              buttonStyle={
+                AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+              }
+              cornerRadius={999}
+              style={styles.appleBtn}
+              onPress={handleAppleSignIn}
+            />
+          )}
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.duration(300)}>
+        <Animated.View entering={FadeInDown.delay(300).springify()}>
           <TouchableOpacity
-            onPress={() => router.push("/(auth)/signup")}
+            onPress={() => router.push("/(auth)/signup" as any)}
             style={styles.switchBtn}
           >
             <Text style={styles.switchText}>
@@ -216,7 +314,26 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
     lineHeight: 50,
   },
-  subtitle: { fontSize: 15, color: Colors.textSecondary, marginBottom: 36 },
+  subtitle: { fontSize: 15, color: Colors.textSecondary, marginBottom: 28 },
+  biometricBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: Colors.accentLight,
+    borderRadius: Radius.full,
+    paddingVertical: 15,
+    marginBottom: Spacing.lg,
+    borderWidth: 1.5,
+    borderColor: Colors.accent,
+  },
+  biometricIcon: { fontSize: 20 },
+  biometricBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Colors.accent,
+    letterSpacing: -0.2,
+  },
   form: { gap: Spacing.xl, marginBottom: Spacing.xl },
   inputGroup: { gap: Spacing.sm },
   inputLabel: {
@@ -257,7 +374,7 @@ const styles = StyleSheet.create({
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
   dividerText: { fontSize: 13, color: Colors.textTertiary },
-  googleBtn: {
+  socialBtn: {
     backgroundColor: Colors.surface,
     borderRadius: Radius.full,
     paddingVertical: 15,
@@ -268,19 +385,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: Colors.border,
     ...Shadow.sm,
-    marginBottom: Spacing.xl,
+    marginBottom: 12,
   },
-  googleIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#4285F4",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  googleIconLetter: { fontSize: 13, fontWeight: "900", color: "#fff" },
-  googleBtnText: { fontSize: 15, fontWeight: "600", color: Colors.text },
-  switchBtn: { alignItems: "center" },
+  socialBtnText: { fontSize: 15, fontWeight: "600", color: Colors.text },
+  appleBtn: { width: "100%", height: 50, marginBottom: 12 },
+  switchBtn: { alignItems: "center", marginTop: Spacing.md },
   switchText: { fontSize: 14, color: Colors.textSecondary },
   switchLink: { color: Colors.accent, fontWeight: "600" },
 });

@@ -1,10 +1,17 @@
 // types/index.ts
 
-export type HealthStatus = 'normal' | 'warning' | 'critical' | 'unknown';
+export type HealthStatus = "normal" | "warning" | "critical" | "unknown";
 
 export interface HealthMetric {
   id: string;
-  type: 'blood_pressure' | 'heart_rate' | 'spo2' | 'hrv' | 'temperature' | 'weight' | 'glucose';
+  type:
+    | "blood_pressure"
+    | "heart_rate"
+    | "spo2"
+    | "hrv"
+    | "temperature"
+    | "weight"
+    | "glucose";
   value: number | string;
   unit: string;
   status: HealthStatus;
@@ -74,24 +81,35 @@ export interface Report {
   createdAt: string;
 }
 
-export interface AISummary {
-  summary: string;
-  keyFindings: Array<{ marker: string; value: string; status: 'Normal' | 'High' | 'Low' | 'Unknown' }>;
-  whatItCouldMean: string;
-  suggestedNextSteps: string[];
-  overallStatus: 'Stable' | 'Needs Attention' | 'Critical';
-}
-
 export interface ChatMessageDoc {
   chatId: string;
   reportId: string;
-  messages: Array<{ role: 'user' | 'ai'; text: string; timestamp: string }>;
+  messages: Array<{ role: "user" | "ai"; text: string; timestamp: string }>;
 }
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
   timestamp: Date;
   imageUri?: string;
+}
+
+export interface AISummary {
+  summary: string;
+  keyFindings: Array<{
+    marker: string;
+    value: string;
+    status: "Normal" | "High" | "Low" | "Unknown";
+  }>;
+  whatItCouldMean: string;
+  suggestedNextSteps: string[];
+  overallStatus: "Stable" | "Needs Attention" | "Critical";
+  medications?: Array<{
+    name: string;
+    dosage: string;
+    timesPerDay: number;
+    notes?: string;
+    durationDays?: number; // ← NEW: how many days the course lasts
+  }>;
 }

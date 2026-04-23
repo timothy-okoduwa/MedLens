@@ -1,6 +1,5 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useColorScheme as useNativeColorScheme } from "react-native";
 import { create } from "zustand";
+import { appStorage } from "../config/storage";
 import { DarkColors, LightColors } from "../constants/theme";
 
 type ThemeMode = "light" | "dark" | "system";
@@ -9,7 +8,10 @@ interface ThemeState {
   mode: ThemeMode;
   isDark: boolean;
   colors: typeof LightColors;
-  setThemeMode: (mode: ThemeMode) => Promise<void>;
+  setThemeMode: (
+    mode: ThemeMode,
+    systemScheme?: "light" | "dark" | null,
+  ) => Promise<void>;
   initialize: (systemScheme: "light" | "dark" | null) => Promise<void>;
 }
 
@@ -18,13 +20,18 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   isDark: false,
   colors: LightColors,
 
-  setThemeMode: async (mode) => {
+  setThemeMode: async (mode, systemScheme) => {
     try {
-      await AsyncStorage.setItem("theme_mode", mode);
-      set({ mode });
-      // Re-initialize with current system scheme
-      const systemScheme = useNativeColorScheme();
-      get().initialize(systemScheme);
+      await appStorage.setItem("theme_mode", mode);
+      const currentSystemScheme = systemScheme ?? null;
+      const isDarkMode =
+        mode === "dark" ||
+        (mode === "system" && currentSystemScheme === "dark");
+      set({
+        mode,
+        isDark: isDarkMode,
+        colors: isDarkMode ? DarkColors : LightColors,
+      });
     } catch (e) {
       console.error("Failed to save theme mode:", e);
     }
@@ -32,7 +39,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
   initialize: async (systemScheme) => {
     try {
-      const savedMode = await AsyncStorage.getItem("theme_mode");
+      const savedMode = await appStorage.getItem("theme_mode");
       const mode = (savedMode as ThemeMode) || "system";
 
       const isDarkMode =
@@ -49,7 +56,6 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 }));
 
-// Hook to use theme in components (call this inside components, not in stores)
 export function useTheme() {
   return useThemeStore();
 }

@@ -1,9 +1,12 @@
-// app/(tabs)/settings.tsx  — Profile + Settings
+// app/(tabs)/settings.tsx
 import { Ionicons } from "@expo/vector-icons";
+import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Modal,
   ScrollView,
   StyleSheet,
   Switch,
@@ -11,14 +14,192 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useColorScheme,
 } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Colors, Shadow, Spacing } from "../../constants/theme";
+import { Shadow, Spacing } from "../../constants/theme";
 import { useAuthStore } from "../../store/authStore";
+import { useBiometricStore } from "../../store/biometricStore";
 import { useNotificationStore } from "../../store/notificationStore";
 import { useThemeStore } from "../../store/themeStore";
 
+// ─── Delete Account Modal ─────────────────────────────────────────────────────
+function DeleteAccountModal({
+  visible,
+  onClose,
+  onConfirm,
+  loading,
+  colors,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onConfirm: (password: string) => void;
+  loading: boolean;
+  colors: any;
+}) {
+  const [password, setPassword] = useState("");
+
+  const handleConfirm = () => {
+    if (!password.trim()) {
+      Alert.alert(
+        "Password required",
+        "Please enter your password to confirm.",
+      );
+      return;
+    }
+    onConfirm(password);
+  };
+
+  const handleClose = () => {
+    setPassword("");
+    onClose();
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={handleClose}
+    >
+      <View style={deleteModalStyles.overlay}>
+        <View
+          style={[
+            deleteModalStyles.container,
+            { backgroundColor: colors.surface },
+          ]}
+        >
+          <View
+            style={[
+              deleteModalStyles.iconWrap,
+              { backgroundColor: colors.dangerBg },
+            ]}
+          >
+            <Ionicons name="trash-outline" size={28} color={colors.danger} />
+          </View>
+          <Text style={[deleteModalStyles.title, { color: colors.text }]}>
+            Delete Account
+          </Text>
+          <Text
+            style={[
+              deleteModalStyles.description,
+              { color: colors.textSecondary },
+            ]}
+          >
+            This will permanently delete your account and all your data
+            including reports, medications, and health records. This cannot be
+            undone.
+          </Text>
+          <Text
+            style={[deleteModalStyles.label, { color: colors.textSecondary }]}
+          >
+            Enter your password to confirm
+          </Text>
+          <TextInput
+            style={[
+              deleteModalStyles.input,
+              {
+                backgroundColor: colors.surfaceAlt,
+                color: colors.text,
+                borderColor: colors.border,
+              },
+            ]}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Your password"
+            placeholderTextColor={colors.textTertiary}
+            secureTextEntry
+            autoFocus
+            editable={!loading}
+          />
+          <View style={deleteModalStyles.btnRow}>
+            <TouchableOpacity
+              style={[
+                deleteModalStyles.btn,
+                { backgroundColor: colors.surfaceAlt },
+              ]}
+              onPress={handleClose}
+              disabled={loading}
+            >
+              <Text style={[deleteModalStyles.btnText, { color: colors.text }]}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                deleteModalStyles.btn,
+                { backgroundColor: colors.danger, opacity: loading ? 0.6 : 1 },
+              ]}
+              onPress={handleConfirm}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={[deleteModalStyles.btnText, { color: "#fff" }]}>
+                  Delete
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const deleteModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  container: {
+    width: "100%",
+    borderRadius: 24,
+    padding: 24,
+    alignItems: "center",
+    gap: 12,
+  },
+  iconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  title: { fontSize: 20, fontWeight: "700", textAlign: "center" },
+  description: { fontSize: 14, textAlign: "center", lineHeight: 20 },
+  label: {
+    fontSize: 13,
+    fontWeight: "500",
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+  input: {
+    width: "100%",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    borderWidth: 1,
+  },
+  btnRow: { flexDirection: "row", gap: 10, marginTop: 6, width: "100%" },
+  btn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  btnText: { fontSize: 15, fontWeight: "600" },
+});
+
+// ─── Settings row ─────────────────────────────────────────────────────────────
 function SettingsRow({
   icon,
   label,
@@ -26,8 +207,8 @@ function SettingsRow({
   destructive,
   value,
   toggle,
+  toggleValue,
   onToggle,
-  delay,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
@@ -35,86 +216,123 @@ function SettingsRow({
   destructive?: boolean;
   value?: string;
   toggle?: boolean;
+  toggleValue?: boolean;
   onToggle?: (value: boolean) => void;
-  delay: number;
 }) {
-  const [sw, setSw] = useState(false);
-
-  const handleToggle = (value: boolean) => {
-    setSw(value);
-    onToggle?.(value);
-  };
+  const { colors } = useThemeStore();
 
   return (
-    <Animated.View entering={FadeInDown.duration(300)}>
-      <TouchableOpacity
-        style={styles.settingsRow}
-        onPress={onPress}
-        activeOpacity={onPress ? 0.7 : 1}
-        disabled={toggle}
+    <TouchableOpacity
+      style={styles.settingsRow}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.7 : 1}
+      disabled={toggle}
+    >
+      <View
+        style={[
+          styles.settingsRowIcon,
+          {
+            backgroundColor: destructive ? colors.dangerBg : colors.surfaceAlt,
+          },
+        ]}
       >
-        <View
-          style={[
-            styles.settingsRowIcon,
-            destructive && styles.settingsRowIconDestructive,
-          ]}
-        >
-          <Ionicons
-            name={icon}
-            size={18}
-            color={destructive ? Colors.danger : Colors.textSecondary}
-          />
-        </View>
-        <Text
-          style={[
-            styles.settingsRowLabel,
-            destructive && styles.destructiveText,
-          ]}
-        >
-          {label}
+        <Ionicons
+          name={icon}
+          size={18}
+          color={destructive ? colors.danger : colors.textSecondary}
+        />
+      </View>
+
+      <Text
+        style={[
+          styles.settingsRowLabel,
+          { color: destructive ? colors.danger : colors.text },
+        ]}
+      >
+        {label}
+      </Text>
+
+      {value ? (
+        <Text style={[styles.settingsRowValue, { color: colors.textTertiary }]}>
+          {value}
         </Text>
-        {value ? (
-          <Text style={styles.settingsRowValue}>{value}</Text>
-        ) : toggle ? (
-          <Switch
-            value={sw}
-            onValueChange={handleToggle}
-            trackColor={{ false: Colors.border, true: Colors.accent }}
-            thumbColor="#fff"
-          />
-        ) : onPress ? (
-          <Ionicons
-            name="chevron-forward"
-            size={16}
-            color={Colors.textTertiary}
-          />
-        ) : null}
-      </TouchableOpacity>
-    </Animated.View>
+      ) : toggle ? (
+        <Switch
+          value={toggleValue ?? false}
+          onValueChange={onToggle}
+          trackColor={{ false: colors.border, true: colors.accent }}
+          thumbColor="#fff"
+        />
+      ) : onPress ? (
+        <Ionicons
+          name="chevron-forward"
+          size={16}
+          color={colors.textTertiary}
+        />
+      ) : null}
+    </TouchableOpacity>
   );
 }
 
-function SectionLabel({ label, delay }: { label: string; delay: number }) {
+// ─── Section label ────────────────────────────────────────────────────────────
+function SectionLabel({ label }: { label: string }) {
+  const { colors } = useThemeStore();
   return (
     <Animated.View entering={FadeInDown.duration(300)}>
-      <Text style={styles.sectionLabel}>{label}</Text>
+      <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
+        {label}
+      </Text>
     </Animated.View>
   );
 }
 
+// ─── Main screen ──────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { user, updateUser, signOut } = useAuthStore();
-  const { mode, setThemeMode } = useThemeStore();
+  const { user, updateUser, signOut, deleteAccount, loading } = useAuthStore();
+  const systemScheme = useColorScheme();
+  const { isDark, setThemeMode, colors } = useThemeStore();
   const { enabled: notificationsEnabled, setEnabled: setNotificationsEnabled } =
     useNotificationStore();
+
+  // ─── Biometric store ───────────────────────────────────────────────────────
+  const {
+    isAvailable: biometricAvailable,
+    isEnabled: biometricEnabled,
+    initialize: initBiometric,
+    disableBiometric,
+    biometricType,
+  } = useBiometricStore();
+
   const [editingName, setEditingName] = useState(false);
   const [nameVal, setNameVal] = useState(user?.name ?? "");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   useEffect(() => {
-    // Initialize notification store
     useNotificationStore.getState().initialize();
   }, []);
+
+  useEffect(() => {
+    initBiometric();
+  }, []);
+
+  // ─── Biometric label ───────────────────────────────────────────────────────
+  const biometricLabel = biometricType?.includes(
+    LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
+  )
+    ? "Face ID"
+    : biometricType?.includes(
+          LocalAuthentication.AuthenticationType.FINGERPRINT,
+        )
+      ? "Fingerprint"
+      : "Biometrics";
+
+  // ─── Biometric toggle — OFF is immediate; ON requires sign-in flow ─────────
+  const handleBiometricToggle = async (val: boolean) => {
+    if (!val) {
+      await disableBiometric();
+    }
+  };
 
   const saveName = async () => {
     if (!nameVal.trim()) return;
@@ -128,51 +346,89 @@ export default function SettingsScreen() {
       { text: "Sign out", style: "destructive", onPress: signOut },
     ]);
 
-  const handleDeleteAccount = () =>
-    Alert.alert(
-      "Delete account",
-      "This will permanently delete your account and all your data. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => Alert.alert("Feature coming soon"),
-        },
-      ],
-    );
+  const handleDeleteConfirm = async (password: string) => {
+    try {
+      await deleteAccount(password);
+      setShowDeleteModal(false);
+    } catch (e: any) {
+      setShowDeleteModal(false);
+      if (
+        e.code === "auth/wrong-password" ||
+        e.code === "auth/invalid-credential"
+      ) {
+        Alert.alert(
+          "Wrong password",
+          "The password you entered is incorrect. Please try again.",
+        );
+      } else if (e.code === "auth/requires-recent-login") {
+        Alert.alert(
+          "Session expired",
+          "Please sign out and sign back in before deleting your account.",
+        );
+      } else {
+        Alert.alert(
+          "Error",
+          e.message ?? "Failed to delete account. Please try again.",
+        );
+      }
+    }
+  };
+
+  const handleDarkModeToggle = (val: boolean) => {
+    setThemeMode(val ? "dark" : "light", systemScheme ?? null);
+  };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View
+      style={[
+        styles.container,
+        { paddingTop: insets.top, backgroundColor: colors.background },
+      ]}
+    >
+      <DeleteAccountModal
+        visible={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleDeleteConfirm}
+        loading={loading}
+        colors={colors}
+      />
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
         <Animated.View entering={FadeInDown.springify()} style={styles.header}>
-          <Text style={styles.screenTitle}>Settings</Text>
+          <Text style={[styles.screenTitle, { color: colors.text }]}>
+            Settings
+          </Text>
         </Animated.View>
 
         {/* Profile card */}
         <Animated.View entering={FadeInDown.duration(300)}>
-          <View style={styles.profileCard}>
-            <View style={styles.profileAvatar}>
+          <View
+            style={[styles.profileCard, { backgroundColor: colors.surface }]}
+          >
+            <View
+              style={[styles.profileAvatar, { backgroundColor: colors.accent }]}
+            >
               <Text style={styles.profileAvatarLetter}>
                 {(user?.name ?? "U")[0].toUpperCase()}
               </Text>
             </View>
             <View style={styles.profileInfo}>
               {editingName ? (
-                <View style={styles.nameEditRow}>
-                  <TextInput
-                    style={styles.nameInput}
-                    value={nameVal}
-                    onChangeText={setNameVal}
-                    autoFocus
-                    onBlur={saveName}
-                    onSubmitEditing={saveName}
-                    returnKeyType="done"
-                  />
-                </View>
+                <TextInput
+                  style={[
+                    styles.nameInput,
+                    { color: colors.text, borderBottomColor: colors.accent },
+                  ]}
+                  value={nameVal}
+                  onChangeText={setNameVal}
+                  autoFocus
+                  onBlur={saveName}
+                  onSubmitEditing={saveName}
+                  returnKeyType="done"
+                />
               ) : (
                 <TouchableOpacity
                   onPress={() => {
@@ -181,23 +437,32 @@ export default function SettingsScreen() {
                   }}
                   style={styles.nameRow}
                 >
-                  <Text style={styles.profileName}>{user?.name ?? "User"}</Text>
+                  <Text style={[styles.profileName, { color: colors.text }]}>
+                    {user?.name ?? "User"}
+                  </Text>
                   <Ionicons
                     name="pencil-outline"
                     size={14}
-                    color={Colors.textTertiary}
+                    color={colors.textTertiary}
                     style={{ marginLeft: 6 }}
                   />
                 </TouchableOpacity>
               )}
-              <Text style={styles.profileEmail}>{user?.email}</Text>
+              <Text
+                style={[styles.profileEmail, { color: colors.textSecondary }]}
+              >
+                {user?.email}
+              </Text>
             </View>
           </View>
         </Animated.View>
 
-        {/* Profile info */}
-        <SectionLabel label="HEALTH PROFILE" delay={140} />
-        <Animated.View entering={FadeInDown.duration(300)} style={styles.card}>
+        {/* Health Profile */}
+        <SectionLabel label="HEALTH PROFILE" />
+        <Animated.View
+          entering={FadeInDown.duration(300)}
+          style={[styles.card, { backgroundColor: colors.surface }]}
+        >
           {[
             {
               label: "Age",
@@ -215,10 +480,20 @@ export default function SettingsScreen() {
           ].map((item, i) => (
             <View
               key={item.label}
-              style={[styles.infoRow, i < 3 && styles.infoDivider]}
+              style={[
+                styles.infoRow,
+                i < 3 && {
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.borderLight,
+                },
+              ]}
             >
-              <Text style={styles.infoLabel}>{item.label}</Text>
-              <Text style={styles.infoValue}>{item.value}</Text>
+              <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+                {item.label}
+              </Text>
+              <Text style={[styles.infoValue, { color: colors.text }]}>
+                {item.value}
+              </Text>
             </View>
           ))}
         </Animated.View>
@@ -226,77 +501,117 @@ export default function SettingsScreen() {
         {user?.conditions && user.conditions.length > 0 && (
           <Animated.View
             entering={FadeInDown.duration(300)}
-            style={styles.card}
+            style={[styles.card, { backgroundColor: colors.surface }]}
           >
-            <Text style={styles.cardMiniLabel}>CONDITIONS</Text>
+            <Text
+              style={[styles.cardMiniLabel, { color: colors.textSecondary }]}
+            >
+              CONDITIONS
+            </Text>
             <View style={styles.chipRow}>
               {user.conditions.map((c) => (
-                <View key={c} style={styles.chip}>
-                  <Text style={styles.chipText}>{c}</Text>
+                <View
+                  key={c}
+                  style={[styles.chip, { backgroundColor: colors.accentLight }]}
+                >
+                  <Text style={[styles.chipText, { color: colors.accent }]}>
+                    {c}
+                  </Text>
                 </View>
               ))}
             </View>
           </Animated.View>
         )}
 
-        {/* Notifications */}
-        <SectionLabel label="PREFERENCES" delay={240} />
-        <Animated.View entering={FadeInDown.duration(300)} style={styles.card}>
+        {/* Preferences */}
+        <SectionLabel label="PREFERENCES" />
+        <Animated.View
+          entering={FadeInDown.duration(300)}
+          style={[styles.card, { backgroundColor: colors.surface }]}
+        >
           <SettingsRow
-            icon="bell-outline"
+            icon="notifications-outline"
             label="Notifications"
             toggle
+            toggleValue={notificationsEnabled}
             onToggle={setNotificationsEnabled}
-            delay={0}
           />
-          <View style={styles.rowDivider} />
+          <View
+            style={[styles.rowDivider, { backgroundColor: colors.borderLight }]}
+          />
           <SettingsRow
             icon="moon-outline"
             label="Dark mode"
             toggle
-            onToggle={(val) => setThemeMode(val ? "dark" : "light")}
-            delay={0}
+            toggleValue={isDark}
+            onToggle={handleDarkModeToggle}
           />
+          {biometricAvailable && (
+            <>
+              <View
+                style={[
+                  styles.rowDivider,
+                  { backgroundColor: colors.borderLight },
+                ]}
+              />
+              <SettingsRow
+                icon="finger-print-outline"
+                label={
+                  biometricEnabled
+                    ? `${biometricLabel} enabled`
+                    : `Enable ${biometricLabel}`
+                }
+                toggle
+                toggleValue={biometricEnabled}
+                onToggle={handleBiometricToggle}
+              />
+            </>
+          )}
         </Animated.View>
 
         {/* Account */}
-        <SectionLabel label="ACCOUNT" delay={320} />
-        <Animated.View entering={FadeInDown.duration(300)} style={styles.card}>
+        <SectionLabel label="ACCOUNT" />
+        <Animated.View
+          entering={FadeInDown.duration(300)}
+          style={[styles.card, { backgroundColor: colors.surface }]}
+        >
           <SettingsRow
-            icon="pills-outline"
+            icon="medical-outline"
             label="Medications"
-            onPress={() => router.push("/(tabs)/medications")}
-            delay={0}
+            onPress={() => router.push("/(tabs)/medications" as any)}
           />
-          <View style={styles.rowDivider} />
+          <View
+            style={[styles.rowDivider, { backgroundColor: colors.borderLight }]}
+          />
           <SettingsRow
             icon="lock-closed-outline"
             label="Change password"
-            onPress={() => router.push("/(tabs)/change-password")}
-            delay={0}
+            onPress={() => router.push("/(tabs)/change-password" as any)}
           />
-          <View style={styles.rowDivider} />
+          <View
+            style={[styles.rowDivider, { backgroundColor: colors.borderLight }]}
+          />
           <SettingsRow
             icon="shield-checkmark-outline"
             label="Privacy policy"
-            onPress={() => router.push("/(tabs)/privacy-policy")}
-            delay={0}
+            onPress={() => router.push("/(tabs)/privacy-policy" as any)}
           />
-          <View style={styles.rowDivider} />
+          <View
+            style={[styles.rowDivider, { backgroundColor: colors.borderLight }]}
+          />
           <SettingsRow
             icon="information-circle-outline"
             label="About MedLens"
-            value="v1.0.0"
-            delay={0}
+            onPress={() => router.push("/(tabs)/about" as any)}
           />
         </Animated.View>
 
         {/* Disclaimer */}
         <Animated.View
           entering={FadeInDown.duration(300)}
-          style={styles.disclaimerBox}
+          style={[styles.disclaimerBox, { backgroundColor: colors.warningBg }]}
         >
-          <Text style={styles.disclaimerText}>
+          <Text style={[styles.disclaimerText, { color: colors.warning }]}>
             ⚠️ MedLens does not provide medical advice. Always consult a
             qualified healthcare professional before making any health
             decisions.
@@ -304,21 +619,24 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* Danger zone */}
-        <SectionLabel label="DANGER ZONE" delay={420} />
-        <Animated.View entering={FadeInDown.duration(300)} style={styles.card}>
+        <SectionLabel label="DANGER ZONE" />
+        <Animated.View
+          entering={FadeInDown.duration(300)}
+          style={[styles.card, { backgroundColor: colors.surface }]}
+        >
           <SettingsRow
             icon="log-out-outline"
             label="Sign out"
             onPress={handleSignOut}
-            delay={0}
           />
-          <View style={styles.rowDivider} />
+          <View
+            style={[styles.rowDivider, { backgroundColor: colors.borderLight }]}
+          />
           <SettingsRow
             icon="trash-outline"
             label="Delete account"
-            onPress={handleDeleteAccount}
+            onPress={() => setShowDeleteModal(true)}
             destructive
-            delay={0}
           />
         </Animated.View>
 
@@ -328,18 +646,13 @@ export default function SettingsScreen() {
   );
 }
 
+// ── Only layout/structural styles live here — NO color values ─────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+  container: { flex: 1 },
   scroll: { paddingHorizontal: Spacing.xl },
   header: { paddingTop: Spacing.lg, marginBottom: Spacing.xl },
-  screenTitle: {
-    fontSize: 34,
-    fontWeight: "300",
-    color: Colors.text,
-    letterSpacing: -1.5,
-  },
+  screenTitle: { fontSize: 34, fontWeight: "300", letterSpacing: -1.5 },
   profileCard: {
-    backgroundColor: Colors.surface,
     borderRadius: 20,
     padding: Spacing.lg,
     flexDirection: "row",
@@ -352,33 +665,27 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: Colors.accent,
     justifyContent: "center",
     alignItems: "center",
   },
   profileAvatarLetter: { fontSize: 24, fontWeight: "700", color: "#fff" },
   profileInfo: { flex: 1 },
   nameRow: { flexDirection: "row", alignItems: "center" },
-  profileName: { fontSize: 20, fontWeight: "600", color: Colors.text },
-  profileEmail: { fontSize: 13, color: Colors.textSecondary, marginTop: 4 },
-  nameEditRow: {},
+  profileName: { fontSize: 20, fontWeight: "600" },
+  profileEmail: { fontSize: 13, marginTop: 4 },
   nameInput: {
     fontSize: 20,
     fontWeight: "600",
-    color: Colors.text,
     borderBottomWidth: 2,
-    borderBottomColor: Colors.accent,
     paddingVertical: 2,
   },
   sectionLabel: {
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 1.2,
-    color: Colors.textSecondary,
     marginBottom: 10,
   },
   card: {
-    backgroundColor: Colors.surface,
     borderRadius: 18,
     marginBottom: Spacing.xl,
     overflow: "hidden",
@@ -389,14 +696,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     padding: Spacing.md,
   },
-  infoDivider: { borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  infoLabel: { fontSize: 15, color: Colors.textSecondary },
-  infoValue: { fontSize: 15, fontWeight: "500", color: Colors.text },
+  infoLabel: { fontSize: 15 },
+  infoValue: { fontSize: 15, fontWeight: "500" },
   cardMiniLabel: {
     fontSize: 11,
     fontWeight: "600",
     letterSpacing: 1,
-    color: Colors.textSecondary,
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.md,
     marginBottom: 8,
@@ -408,13 +713,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingBottom: Spacing.md,
   },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: Colors.accentLight,
-  },
-  chipText: { fontSize: 12, fontWeight: "600", color: Colors.accent },
+  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
+  chipText: { fontSize: 12, fontWeight: "600" },
   settingsRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -426,24 +726,19 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: Colors.surfaceAlt,
     justifyContent: "center",
     alignItems: "center",
   },
-  settingsRowIconDestructive: { backgroundColor: Colors.dangerBg },
-  settingsRowLabel: { flex: 1, fontSize: 15, color: Colors.text },
-  settingsRowValue: { fontSize: 14, color: Colors.textTertiary },
-  destructiveText: { color: Colors.danger },
+  settingsRowLabel: { flex: 1, fontSize: 15 },
+  settingsRowValue: { fontSize: 14 },
   rowDivider: {
     height: 1,
-    backgroundColor: Colors.borderLight,
     marginLeft: Spacing.md + 34 + 14,
   },
   disclaimerBox: {
-    backgroundColor: Colors.warningBg,
     borderRadius: 14,
     padding: Spacing.md,
     marginBottom: Spacing.xl,
   },
-  disclaimerText: { fontSize: 12, color: Colors.warning, lineHeight: 18 },
+  disclaimerText: { fontSize: 12, lineHeight: 18 },
 });

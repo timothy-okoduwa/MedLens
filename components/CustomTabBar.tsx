@@ -9,10 +9,12 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Colors, Shadow } from "../constants/theme";
+import { Shadow } from "../constants/theme";
+import { useThemeStore } from "../store/themeStore";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
+// Only these screens appear in the tab bar
 const TAB_CONFIG: Record<
   string,
   { label: string; icon: IconName; iconActive: IconName }
@@ -28,20 +30,26 @@ const TAB_CONFIG: Record<
     icon: "bar-chart-outline",
     iconActive: "bar-chart",
   },
-  settings: {
-    label: "Settings",
-    icon: "settings-outline",
-    iconActive: "settings",
-  },
-  // legacy tab names kept for compatibility
-  scan: { label: "Scan", icon: "scan-outline", iconActive: "scan" },
-  vitals: { label: "Vitals", icon: "heart-outline", iconActive: "heart" },
   medications: {
     label: "Meds",
     icon: "medical-outline",
     iconActive: "medical",
   },
+  settings: {
+    label: "Settings",
+    icon: "settings-outline",
+    iconActive: "settings",
+  },
 };
+
+// Screens that should never appear in the tab bar
+const HIDDEN_SCREENS = new Set([
+  "change-password",
+  "privacy-policy",
+  "report/[id]",
+  "notifications",
+  "about",
+]);
 
 function TabItem({
   route,
@@ -56,6 +64,7 @@ function TabItem({
 }) {
   const scale = useSharedValue(1);
   const bgOpacity = useSharedValue(0);
+  const { colors } = useThemeStore();
 
   const config = TAB_CONFIG[route.name] ?? {
     label: route.name,
@@ -89,13 +98,25 @@ function TabItem({
       activeOpacity={1}
     >
       <Animated.View style={[styles.tabItemInner, itemStyle]}>
-        <Animated.View style={[styles.activePill, pillStyle]} />
+        <Animated.View
+          style={[
+            styles.activePill,
+            pillStyle,
+            { backgroundColor: colors.accentLight },
+          ]}
+        />
         <Ionicons
           name={isFocused ? config.iconActive : config.icon}
           size={22}
-          color={isFocused ? Colors.accent : Colors.tabInactive}
+          color={isFocused ? colors.accent : colors.tabInactive}
         />
-        <Text style={[styles.tabLabel, isFocused && styles.tabLabelActive]}>
+        <Text
+          style={[
+            styles.tabLabel,
+            { color: colors.tabInactive },
+            isFocused && { color: colors.accent, fontWeight: "700" },
+          ]}
+        >
           {config.label}
         </Text>
       </Animated.View>
@@ -109,13 +130,28 @@ export default function CustomTabBar({
   navigation,
 }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useThemeStore();
+
+  // Filter to only the 5 visible tab screens
+  const visibleRoutes = state.routes.filter(
+    (route) => !HIDDEN_SCREENS.has(route.name),
+  );
 
   return (
     <View
       style={[styles.container, { paddingBottom: Math.max(insets.bottom, 8) }]}
     >
-      <View style={styles.bar}>
-        {state.routes.map((route, index) => {
+      <View
+        style={[
+          styles.bar,
+          {
+            backgroundColor: colors.surface,
+            borderColor: colors.borderLight,
+          },
+        ]}
+      >
+        {visibleRoutes.map((route) => {
+          const index = state.routes.findIndex((r) => r.key === route.key);
           const isFocused = state.index === index;
 
           const onPress = () => {
@@ -158,13 +194,11 @@ const styles = StyleSheet.create({
   },
   bar: {
     flexDirection: "row",
-    backgroundColor: Colors.surface,
     borderRadius: 28,
     paddingVertical: 8,
     paddingHorizontal: 4,
     ...Shadow.lg,
     borderWidth: 1,
-    borderColor: Colors.borderLight,
   },
   tabItem: { flex: 1, alignItems: "center" },
   tabItemInner: {
@@ -179,13 +213,11 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: Colors.accentLight,
   },
   tabLabel: {
     fontSize: 10,
     fontWeight: "500",
     letterSpacing: 0.3,
-    color: Colors.tabInactive,
+    marginTop: 9,
   },
-  tabLabelActive: { color: Colors.accent, fontWeight: "700" },
 });

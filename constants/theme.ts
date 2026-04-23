@@ -61,7 +61,7 @@ export const DarkColors = {
   text: "#F5F5F5",
   textSecondary: "#B8B8B8",
   textTertiary: "#7A7A7A",
-  textInverse: "#1A1612",
+  textInverse: "#ffffff",
 
   // Border
   border: "#3A3530",

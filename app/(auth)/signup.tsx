@@ -1,4 +1,5 @@
 // app/(auth)/signup.tsx
+import * as AppleAuthentication from "expo-apple-authentication";
 import * as Google from "expo-auth-session/providers/google";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -22,6 +23,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import { GoogleIcon } from "../../components/GoogleIcon";
 import { Colors, Radius, Shadow, Spacing } from "../../constants/theme";
 import { useAuthStore } from "../../store/authStore";
 
@@ -32,7 +34,7 @@ export default function SignUpScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [focusedField, setFocusedField] = useState<string | null>(null);
-  const { signUp, signInWithGoogle, loading } = useAuthStore();
+  const { signUp, signInWithGoogle, signInWithApple, loading } = useAuthStore();
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     androidClientId:
@@ -48,7 +50,7 @@ export default function SignUpScreen() {
       const { id_token } = response.params;
       if (id_token) {
         signInWithGoogle(id_token)
-          .then(() => router.replace("/(auth)/onboarding/step1"))
+          .then(() => router.replace("/(tabs)"))
           .catch((e: any) => Alert.alert("Google Sign-In failed", e.message));
       }
     }
@@ -56,12 +58,10 @@ export default function SignUpScreen() {
 
   const headerY = useSharedValue(-20);
   const headerOpacity = useSharedValue(0);
-
   useEffect(() => {
     headerY.value = withDelay(50, withSpring(0, { damping: 16 }));
     headerOpacity.value = withDelay(50, withTiming(1, { duration: 400 }));
   }, []);
-
   const headerStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: headerY.value }],
     opacity: headerOpacity.value,
@@ -78,9 +78,24 @@ export default function SignUpScreen() {
     }
     try {
       await signUp(email.trim(), password, name.trim());
-      router.replace("/(auth)/onboarding/step1");
+      // ✅ Always send new users to onboarding, not the tab bar
+      router.replace("/(auth)/onboarding/step1" as any);
     } catch (e: any) {
       Alert.alert("Sign up failed", e.message ?? "Something went wrong.");
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    try {
+      await signInWithApple();
+      router.replace("/(tabs)");
+    } catch (e: any) {
+      if (e?.code !== "ERR_REQUEST_CANCELED") {
+        Alert.alert(
+          "Apple Sign-In failed",
+          e.message ?? "Something went wrong.",
+        );
+      }
     }
   };
 
@@ -180,21 +195,33 @@ export default function SignUpScreen() {
           </View>
 
           <TouchableOpacity
-            style={styles.googleBtn}
+            style={styles.socialBtn}
             onPress={() => promptAsync()}
             disabled={!request || loading}
             activeOpacity={0.85}
           >
-            <View style={styles.googleIcon}>
-              <Text style={styles.googleIconLetter}>G</Text>
-            </View>
-            <Text style={styles.googleBtnText}>Continue with Google</Text>
+            <GoogleIcon size={20} />
+            <Text style={styles.socialBtnText}>Continue with Google</Text>
           </TouchableOpacity>
+
+          {Platform.OS === "ios" && (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={
+                AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN
+              }
+              buttonStyle={
+                AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+              }
+              cornerRadius={999}
+              style={styles.appleBtn}
+              onPress={handleAppleSignIn}
+            />
+          )}
         </Animated.View>
 
         <Animated.View entering={FadeInDown.delay(300).springify()}>
           <TouchableOpacity
-            onPress={() => router.push("/(auth)/signin")}
+            onPress={() => router.replace("/(auth)/signin" as any)}
             style={styles.switchBtn}
           >
             <Text style={styles.switchText}>
@@ -271,7 +298,7 @@ const styles = StyleSheet.create({
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
   dividerText: { fontSize: 13, color: Colors.textTertiary },
-  googleBtn: {
+  socialBtn: {
     backgroundColor: Colors.surface,
     borderRadius: Radius.full,
     paddingVertical: 15,
@@ -282,18 +309,10 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: Colors.border,
     ...Shadow.sm,
-    marginBottom: Spacing.xl,
+    marginBottom: 12,
   },
-  googleIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#4285F4",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  googleIconLetter: { fontSize: 13, fontWeight: "900", color: "#fff" },
-  googleBtnText: { fontSize: 15, fontWeight: "600", color: Colors.text },
+  socialBtnText: { fontSize: 15, fontWeight: "600", color: Colors.text },
+  appleBtn: { width: "100%", height: 50, marginBottom: 12 },
   switchBtn: { alignItems: "center", marginBottom: Spacing.md },
   switchText: { fontSize: 14, color: Colors.textSecondary },
   switchLink: { color: Colors.accent, fontWeight: "600" },
